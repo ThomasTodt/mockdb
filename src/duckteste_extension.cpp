@@ -43,25 +43,43 @@ struct SumSquaresOperation {
     using INPUT_TYPE = double;
     using RESULT_TYPE = double;
 
-    static void Initialize(STATE &state) {
-        state.total = 0;
+    // engine calls this to check whether to skip null checks fast-path
+    static bool IgnoreNull() {
+        return true; // skip nulls (do not feed nulls to Operation)
     }
 
-    static void Operation(STATE &state, const INPUT_TYPE &input, AggregateInputData &) {
-        state.total += input * input;
+	static void Initialize(STATE &state) {
+        state.total = 0.0;
     }
 
-    static void Combine(const STATE &source, STATE &target, AggregateInputData &) {
+    // Called when input vector is a constant vector (one value for whole batch)
+    template <class INPUT_T, class STATE_T, class OP>
+    static void ConstantOperation(STATE_T &state, INPUT_T input, duckdb::AggregateUnaryInput &input_data, idx_t count) {
+        // input is unwrapped to INPUT_T already
+        state.total += (double)input * (double)input;
+    }
+
+    // Per-element update path used by the generic executor
+    template <class INPUT_T, class STATE_T, class OP>
+    static void Operation(STATE_T &state, INPUT_T input, duckdb::AggregateUnaryInput &input_data) {
+        state.total += (double)input * (double)input;
+    }
+
+    // Merge partial states (source -> target)
+    template <class STATE_T, class OP>
+    static void Combine(const STATE_T &source, STATE_T &target, duckdb::AggregateInputData &aggr_input) {
         target.total += source.total;
     }
 
-    static void Finalize(const STATE &state, AggregateInputData &, RESULT_TYPE &target) {
-        target = state.total;
+    // Finalize: engine expects Finalize<RESULT_T, STATE_T>(STATE_T&, RESULT_T&, AggregateFinalizeData&)
+    template <class RESULT_T, class STATE_T>
+    static void Finalize(const STATE_T &state, RESULT_T &result, duckdb::AggregateFinalizeData &finalize_data) {
+        result = (RESULT_T)state.total;
     }
 };
 
 
-inline void RegisterSumSquares(AggregateFunctionSet &set) {
+void RegisterSumSquares(AggregateFunctionSet &set) {
     auto input_type = LogicalType::DOUBLE;
     auto result_type = LogicalType::DOUBLE;
 
